@@ -1,3 +1,4 @@
+using System.IO.MemoryMappedFiles;
 using System.Numerics;
 
 namespace LargePrimeCli;
@@ -87,11 +88,37 @@ public static class PrimeUtilities
 
     public static BigInteger[] LoadLargePrimes(string path, BigInteger maxPrime)
     {
-        if (!File.Exists(path))
-            return [];
+        return EnumerateLargePrimesMemoryMapped(path, maxPrime)
+            .Distinct()
+            .OrderBy(p => p)
+            .ToArray();
+    }
 
-        var primes = new List<BigInteger>();
-        foreach (string rawLine in File.ReadLines(path))
+    public static IEnumerable<BigInteger> EnumerateLargePrimesMemoryMapped(string path, BigInteger maxPrime)
+    {
+        if (!File.Exists(path))
+            yield break;
+
+        using MemoryMappedFile mappedFile = MemoryMappedFile.CreateFromFile(
+            path,
+            FileMode.Open,
+            mapName: null,
+            capacity: 0,
+            MemoryMappedFileAccess.Read);
+
+        using MemoryMappedViewStream stream = mappedFile.CreateViewStream(
+            offset: 0,
+            size: 0,
+            MemoryMappedFileAccess.Read);
+
+        using var reader = new StreamReader(
+            stream,
+            System.Text.Encoding.UTF8,
+            detectEncodingFromByteOrderMarks: true,
+            bufferSize: 1024 * 1024,
+            leaveOpen: false);
+
+        while (reader.ReadLine() is { } rawLine)
         {
             string line = rawLine.Trim();
             if (line.Length == 0 || line.StartsWith('#'))
@@ -102,10 +129,8 @@ public static class PrimeUtilities
                 break;
 
             if (prime > int.MaxValue)
-                primes.Add(prime);
+                yield return prime;
         }
-
-        return primes.Distinct().OrderBy(p => p).ToArray();
     }
 
     public static int IntegerSquareRoot(long n)

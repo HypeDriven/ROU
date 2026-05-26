@@ -222,6 +222,8 @@ public sealed class Factorizer
 
     private readonly int[] _smallPrimes;
     private readonly BigInteger[] _largePrimes;
+    private readonly string? _memoryMappedLargePrimeCachePath;
+    private readonly BigInteger _largePrimeLimit;
     private readonly long[] _pMinusOnePowers;
     private readonly int[] _pMinusOneStage2Primes;
     private readonly int _workers;
@@ -229,6 +231,8 @@ public sealed class Factorizer
     public Factorizer(
         int[] smallPrimes,
         BigInteger[] largePrimes,
+        string? memoryMappedLargePrimeCachePath,
+        BigInteger largePrimeLimit,
         long[] pMinusOnePowers,
         int pMinusOneStage1Bound,
         int pMinusOneStage2Bound,
@@ -236,6 +240,8 @@ public sealed class Factorizer
     {
         _smallPrimes = smallPrimes;
         _largePrimes = largePrimes;
+        _memoryMappedLargePrimeCachePath = memoryMappedLargePrimeCachePath;
+        _largePrimeLimit = largePrimeLimit;
         _pMinusOnePowers = pMinusOnePowers;
         _pMinusOneStage2Primes = pMinusOneStage2Bound > pMinusOneStage1Bound
             ? PrimeUtilities.GenerateSmallPrimes(pMinusOneStage2Bound)
@@ -386,7 +392,7 @@ public sealed class Factorizer
         bool quiet,
         CancellationToken cancellationToken)
     {
-        foreach (BigInteger p in _largePrimes)
+        foreach (BigInteger p in EnumerateLargePrimeInputs())
         {
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -408,6 +414,22 @@ public sealed class Factorizer
         }
 
         return n;
+    }
+
+    private IEnumerable<BigInteger> EnumerateLargePrimeInputs()
+    {
+        foreach (BigInteger prime in _largePrimes)
+            yield return prime;
+
+        if (!string.IsNullOrWhiteSpace(_memoryMappedLargePrimeCachePath))
+        {
+            foreach (BigInteger prime in PrimeUtilities.EnumerateLargePrimesMemoryMapped(
+                _memoryMappedLargePrimeCachePath,
+                _largePrimeLimit))
+            {
+                yield return prime;
+            }
+        }
     }
 
     private static void AddFactor(
@@ -946,9 +968,10 @@ public static class FactorCommand
         }
 
         BigInteger largePrimeLimit = IntegerSqrt(options.Number);
-        BigInteger[] largePrimes = options.UseLargePrimeCache
-            ? PrimeUtilities.LoadLargePrimes(options.LargePrimesFile, largePrimeLimit)
-            : [];
+        string? memoryMappedLargePrimeCachePath = options.UseLargePrimeCache && File.Exists(options.LargePrimesFile)
+            ? options.LargePrimesFile
+            : null;
+        BigInteger[] largePrimes = [];
 
         long[] rootSchedule = PMinusOneRootScheduleCache.LoadOrCreate(
             options.RootScheduleFile,
@@ -960,7 +983,7 @@ public static class FactorCommand
             Console.Error.WriteLine($"Factoring: {options.Number}");
             Console.Error.WriteLine($"Small prime input: {smallSource} ({smallPrimes.Length} primes).");
             Console.Error.WriteLine(options.UseLargePrimeCache
-                ? $"Large prime input: {options.LargePrimesFile}, limited to <= sqrt(n) = {largePrimeLimit} ({largePrimes.Length} primes)."
+                ? $"Large prime input: {(memoryMappedLargePrimeCachePath is null ? "cache file not found" : memoryMappedLargePrimeCachePath)}, memory-mapped and streamed up to <= sqrt(n) = {largePrimeLimit}."
                 : "Large prime input: skipped by --no-large-prime-cache.");
             Console.Error.WriteLine($"Pollard p-1/root-collision stage-1 bound: {options.PMinusOneBound}");
             Console.Error.WriteLine($"Pollard p-1/root-collision stage-2 bound: {options.PMinusOneStage2Bound}");
@@ -971,6 +994,8 @@ public static class FactorCommand
         var factorizer = new Factorizer(
             smallPrimes,
             largePrimes,
+            memoryMappedLargePrimeCachePath,
+            largePrimeLimit,
             rootSchedule,
             options.PMinusOneBound,
             options.PMinusOneStage2Bound,

@@ -66,7 +66,9 @@ gcd(a^M - 1, n)
 
 If a prime factor `p` of `n` has `p - 1` composed of small primes under the bound, then `a^M ≡ 1 mod p`, creating a root-of-unity collision that reveals `p` via the gcd.
 
-The modular residues themselves depend on the number being factored, so they cannot be reused across different inputs. The app does cache the reusable part: the Pollard `p - 1` prime-power/root schedule. By default this is saved at:
+The modular residues themselves depend on the number being factored, so they cannot be reused across different inputs. The app does cache the reusable part: the Pollard `p - 1` prime-power/root schedule. Large-prime cache trial division is memory-mapped and streamed up to `sqrt(n)`, so factoring no longer has to load the whole large-prime cache into memory at startup.
+
+By default the root schedule is saved at:
 
 ```text
 .prime-cache/pminus1-powers-<bound>.txt
