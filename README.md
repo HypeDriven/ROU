@@ -75,16 +75,17 @@ The modular residues themselves depend on the number being factored, so they can
 Options:
 
 ```text
-    --pminus1-bound <n>        Smoothness bound for Pollard p-1/root collision search (default: 100000)
--s, --small-prime-limit <n>    Fallback trial-division prime limit when no cache exists (default: 100000)
-    --small-primes-file <path> Small prime cache file (default: .prime-cache/small-primes.txt)
-    --large-primes-file <path> Large prime cache file (default: .prime-cache/large-primes.txt)
-    --root-schedule-file <path> Cache file for reusable Pollard p-1 prime-power/root schedule
-    --use-large-prime-cache    Trial-divide by large-primes cache too; enabled by default
-    --no-large-prime-cache     Skip large-prime cache trial division
--w, --workers <n>              Parallel factor workers and Pollard rho workers (default: CPU core count)
--q, --quiet                    Only print factors to stdout
--h, --help                     Show help
+    --pminus1-bound <n>           Stage-1 smoothness bound for Pollard p-1/root collision search (default: 100000)
+    --pminus1-stage2-bound <n>    Stage-2 bound for one-large-prime p-1 extension (default: 10 * stage-1 bound)
+-s, --small-prime-limit <n>       Fallback trial-division prime limit when no cache exists (default: 100000)
+    --small-primes-file <path>    Small prime cache file (default: .prime-cache/small-primes.txt)
+    --large-primes-file <path>    Large prime cache file (default: .prime-cache/large-primes.txt)
+    --root-schedule-file <path>   Cache file for reusable Pollard p-1 prime-power/root schedule
+    --use-large-prime-cache       Trial-divide by large-primes cache too; enabled by default
+    --no-large-prime-cache        Skip large-prime cache trial division
+-w, --workers <n>                 Parallel factor workers and Pollard rho workers (default: CPU core count)
+-q, --quiet                       Only print factors to stdout
+-h, --help                        Show help
 ```
 
 ## Generate command options
