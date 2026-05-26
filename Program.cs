@@ -2,6 +2,39 @@ using System.Diagnostics;
 using System.Numerics;
 using LargePrimeCli;
 
+if (args.Length > 0 && string.Equals(args[0], "factor", StringComparison.OrdinalIgnoreCase))
+{
+    FactorOptions? factorOptions = FactorOptions.Parse(args[1..]);
+    if (factorOptions is null)
+    {
+        FactorOptions.PrintUsage();
+        return 2;
+    }
+
+    if (factorOptions.ShowHelp)
+    {
+        FactorOptions.PrintUsage();
+        return 0;
+    }
+
+    using var factorCts = CreateCancellationTokenSource();
+
+    try
+    {
+        return FactorCommand.Run(factorOptions, factorCts.Token);
+    }
+    catch (OperationCanceledException)
+    {
+        Console.Error.WriteLine("Canceled.");
+        return 130;
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Error: {ex.Message}");
+        return 1;
+    }
+}
+
 if (args.Length > 0 && string.Equals(args[0], "cache", StringComparison.OrdinalIgnoreCase))
 {
     PrimeCacheOptions? cacheOptions = PrimeCacheOptions.Parse(args[1..]);
@@ -283,6 +316,7 @@ LargePrimeCli - generate large probable primes with Pocklington proof step
 Usage:
   dotnet run -- [options]
   dotnet run -- cache --max <N> [options]
+  dotnet run -- factor <number> [options]
 
 Options:
   -b, --bits <n>                 Prime bit length (default: 128, min: 16)
@@ -298,6 +332,10 @@ Options:
 Cache utility:
   dotnet run -- cache --max 1000000
   dotnet run -- cache --help
+
+Factor utility:
+  dotnet run -- factor 8051
+  dotnet run -- factor --help
 
 Examples:
   dotnet run -- --bits 256

@@ -43,6 +43,40 @@ dotnet run -- --bits 256 \
   --large-primes-file ./cache/large-primes.txt
 ```
 
+## Factor a number
+
+The factor command uses the same cached prime inputs for trial division, then tries a roots-of-unity style Pollard `p - 1` search, and falls back to Pollard rho.
+
+```powershell
+dotnet .\publish\LargePrimeCli.dll factor 8051
+```
+
+Output:
+
+```text
+83
+97
+```
+
+The `p - 1` step looks for a collision:
+
+```text
+gcd(a^M - 1, n)
+```
+
+If a prime factor `p` of `n` has `p - 1` composed of small primes under the bound, then `a^M ≡ 1 mod p`, creating a root-of-unity collision that reveals `p` via the gcd.
+
+Options:
+
+```text
+    --pminus1-bound <n>        Smoothness bound for Pollard p-1/root collision search (default: 100000)
+-s, --small-prime-limit <n>    Fallback trial-division prime limit when no cache exists (default: 100000)
+    --small-primes-file <path> Small prime cache file (default: .prime-cache/small-primes.txt)
+    --large-primes-file <path> Large prime cache file (default: .prime-cache/large-primes.txt)
+-q, --quiet                    Only print factors to stdout
+-h, --help                     Show help
+```
+
 ## Generate command options
 
 ```text

@@ -44,6 +44,29 @@ public static class PrimeUtilities
             .ToArray();
     }
 
+    public static int[] LoadSmallPrimes(string path, int maxPrime)
+    {
+        if (!File.Exists(path))
+            return [];
+
+        var primes = new List<int>();
+        foreach (string rawLine in File.ReadLines(path))
+        {
+            string line = rawLine.Trim();
+            if (line.Length == 0 || line.StartsWith('#'))
+                continue;
+
+            int prime = int.Parse(line);
+            if (prime > maxPrime)
+                break;
+
+            if (prime >= 2)
+                primes.Add(prime);
+        }
+
+        return primes.Distinct().OrderBy(p => p).ToArray();
+    }
+
     public static BigInteger[] LoadLargePrimes(string path)
     {
         if (!File.Exists(path))
@@ -57,6 +80,29 @@ public static class PrimeUtilities
             .Distinct()
             .OrderBy(p => p)
             .ToArray();
+    }
+
+    public static BigInteger[] LoadLargePrimes(string path, BigInteger maxPrime)
+    {
+        if (!File.Exists(path))
+            return [];
+
+        var primes = new List<BigInteger>();
+        foreach (string rawLine in File.ReadLines(path))
+        {
+            string line = rawLine.Trim();
+            if (line.Length == 0 || line.StartsWith('#'))
+                continue;
+
+            BigInteger prime = BigInteger.Parse(line);
+            if (prime > maxPrime)
+                break;
+
+            if (prime > int.MaxValue)
+                primes.Add(prime);
+        }
+
+        return primes.Distinct().OrderBy(p => p).ToArray();
     }
 
     public static int IntegerSquareRoot(long n)
