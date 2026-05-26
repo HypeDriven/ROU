@@ -79,6 +79,13 @@ public sealed record PrimeCacheOptions(
             return null;
         }
 
+        long root = (long)Math.Sqrt(max);
+        if (root >= int.MaxValue - 1L)
+        {
+            Console.Error.WriteLine($"cache --max is too large for the current in-memory base-prime sieve: sqrt(max) is about {root:N0}. Try a smaller --max.");
+            return null;
+        }
+
         return new PrimeCacheOptions(max, smallOutputPath, largeOutputPath, segmentSize, quiet, help, emitPrimes);
     }
 

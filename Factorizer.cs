@@ -11,6 +11,7 @@ public sealed record FactorOptions(
     string SmallPrimesFile,
     string LargePrimesFile,
     string RootScheduleFile,
+    bool UseLargePrimeCache,
     bool Quiet,
     bool ShowHelp)
 {
@@ -23,6 +24,7 @@ public sealed record FactorOptions(
         string smallPrimesFile = Path.Combine(".prime-cache", "small-primes.txt");
         string largePrimesFile = Path.Combine(".prime-cache", "large-primes.txt");
         string? rootScheduleFile = null;
+        bool useLargePrimeCache = false;
         bool quiet = false;
         bool help = false;
 
@@ -60,6 +62,10 @@ public sealed record FactorOptions(
                     rootScheduleFile = args[i];
                     break;
 
+                case "--use-large-prime-cache":
+                    useLargePrimeCache = true;
+                    break;
+
                 case "-q":
                 case "--quiet":
                     quiet = true;
@@ -86,7 +92,7 @@ public sealed record FactorOptions(
         rootScheduleFile ??= Path.Combine(".prime-cache", $"pminus1-powers-{pMinusOneBound}.txt");
 
         if (help)
-            return new FactorOptions(number, pMinusOneBound, smallPrimeLimit, smallPrimesFile, largePrimesFile, rootScheduleFile, quiet, help);
+            return new FactorOptions(number, pMinusOneBound, smallPrimeLimit, smallPrimesFile, largePrimesFile, rootScheduleFile, useLargePrimeCache, quiet, help);
 
         if (!hasNumber || number < 2)
         {
@@ -100,7 +106,7 @@ public sealed record FactorOptions(
             return null;
         }
 
-        return new FactorOptions(number, pMinusOneBound, smallPrimeLimit, smallPrimesFile, largePrimesFile, rootScheduleFile, quiet, help);
+        return new FactorOptions(number, pMinusOneBound, smallPrimeLimit, smallPrimesFile, largePrimesFile, rootScheduleFile, useLargePrimeCache, quiet, help);
     }
 
     public static void PrintUsage()
@@ -117,6 +123,7 @@ Options:
       --small-primes-file <path> Small prime cache file (default: .prime-cache/small-primes.txt)
       --large-primes-file <path> Large prime cache file (default: .prime-cache/large-primes.txt)
       --root-schedule-file <path> Cache file for reusable Pollard p-1 prime-power/root schedule
+      --use-large-prime-cache    Trial-divide by large-primes cache too; off by default for huge inputs
   -q, --quiet                    Only print factors to stdout
   -h, --help                     Show this help
 
@@ -216,6 +223,9 @@ public sealed class Factorizer
     private static void AddFactor(BigInteger factor, List<BigInteger> factors, bool quiet)
     {
         factors.Add(factor);
+        Console.WriteLine(factor);
+        Console.Out.Flush();
+
         if (!quiet)
             Console.Error.WriteLine($"Verified factor: {factor}");
     }
@@ -404,8 +414,9 @@ public static class FactorCommand
             smallSource = $"generated in memory up to {options.SmallPrimeLimit}";
         }
 
-        BigInteger largePrimeLimit = options.Number / 2;
-        BigInteger[] largePrimes = PrimeUtilities.LoadLargePrimes(options.LargePrimesFile, largePrimeLimit);
+        BigInteger[] largePrimes = options.UseLargePrimeCache
+            ? PrimeUtilities.LoadLargePrimes(options.LargePrimesFile, options.Number / 2)
+            : [];
 
         long[] rootSchedule = PMinusOneRootScheduleCache.LoadOrCreate(
             options.RootScheduleFile,
@@ -416,16 +427,15 @@ public static class FactorCommand
         {
             Console.Error.WriteLine($"Factoring: {options.Number}");
             Console.Error.WriteLine($"Small prime input: {smallSource} ({smallPrimes.Length} primes).");
-            Console.Error.WriteLine($"Large prime input: {options.LargePrimesFile} ({largePrimes.Length} primes).");
+            Console.Error.WriteLine(options.UseLargePrimeCache
+                ? $"Large prime input: {options.LargePrimesFile} ({largePrimes.Length} primes)."
+                : "Large prime input: skipped by default; use --use-large-prime-cache to enable.");
             Console.Error.WriteLine($"Pollard p-1/root-collision bound: {options.PMinusOneBound}");
             Console.Error.WriteLine($"Root schedule input: {options.RootScheduleFile} ({rootSchedule.Length} prime powers).");
         }
 
         var factorizer = new Factorizer(smallPrimes, largePrimes, rootSchedule);
         List<BigInteger> factors = factorizer.Factor(options.Number, options.Quiet, cancellationToken);
-
-        foreach (BigInteger factor in factors)
-            Console.WriteLine(factor);
 
         stopwatch.Stop();
 

@@ -9,6 +9,9 @@ public static class PrimeUtilities
         if (max < 2)
             return [];
 
+        if (max >= int.MaxValue - 1)
+            throw new ArgumentOutOfRangeException(nameof(max), $"Prime sieve limit {max:N0} is too large for an in-memory .NET array. Use a smaller --max/--pminus1-bound or a segmented/external cache approach.");
+
         bool[] composite = new bool[max + 1];
         var primes = new List<int>();
 
@@ -113,6 +116,10 @@ public static class PrimeUtilities
         long root = (long)Math.Sqrt(n);
         while ((root + 1) <= n / (root + 1)) root++;
         while (root > n / root) root--;
-        return checked((int)root);
+
+        if (root > int.MaxValue - 1L)
+            throw new ArgumentOutOfRangeException(nameof(n), $"sqrt({n:N0}) is {root:N0}, which is too large for the current in-memory base-prime sieve.");
+
+        return (int)root;
     }
 }

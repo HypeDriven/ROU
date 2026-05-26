@@ -80,6 +80,7 @@ Options:
     --small-primes-file <path> Small prime cache file (default: .prime-cache/small-primes.txt)
     --large-primes-file <path> Large prime cache file (default: .prime-cache/large-primes.txt)
     --root-schedule-file <path> Cache file for reusable Pollard p-1 prime-power/root schedule
+    --use-large-prime-cache    Trial-divide by large-primes cache too; off by default for huge inputs
 -q, --quiet                    Only print factors to stdout
 -h, --help                     Show help
 ```
