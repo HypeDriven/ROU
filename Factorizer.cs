@@ -15,6 +15,7 @@ public sealed record FactorOptions(
     string LargePrimesFile,
     string RootScheduleFile,
     bool UseLargePrimeCache,
+    bool ForceLargePrimeCache,
     int Workers,
     bool Quiet,
     bool ShowHelp)
@@ -30,6 +31,7 @@ public sealed record FactorOptions(
         string largePrimesFile = Path.Combine(".prime-cache", "large-primes.txt");
         string? rootScheduleFile = null;
         bool useLargePrimeCache = true;
+        bool forceLargePrimeCache = false;
         int workers = Environment.ProcessorCount;
         bool quiet = false;
         bool help = false;
@@ -81,6 +83,11 @@ public sealed record FactorOptions(
                     useLargePrimeCache = false;
                     break;
 
+                case "--force-large-prime-cache":
+                    useLargePrimeCache = true;
+                    forceLargePrimeCache = true;
+                    break;
+
                 case "--workers":
                 case "-w":
                     if (++i >= args.Length || !int.TryParse(args[i], out workers)) return null;
@@ -123,6 +130,7 @@ public sealed record FactorOptions(
                 largePrimesFile,
                 rootScheduleFile,
                 useLargePrimeCache,
+                forceLargePrimeCache,
                 workers,
                 quiet,
                 help);
@@ -161,6 +169,7 @@ public sealed record FactorOptions(
             largePrimesFile,
             rootScheduleFile,
             useLargePrimeCache,
+            forceLargePrimeCache,
             workers,
             quiet,
             help);
@@ -183,6 +192,7 @@ Options:
       --root-schedule-file <path>   Cache file for reusable Pollard p-1 prime-power/root schedule
       --use-large-prime-cache       Trial-divide by large-primes cache too; enabled by default
       --no-large-prime-cache        Skip large-prime cache trial division
+      --force-large-prime-cache     Scan large-prime cache even for huge inputs
   -w, --workers <n>                 Parallel factor workers and Pollard rho workers (default: CPU core count)
   -q, --quiet                       Only print factors to stdout
   -h, --help                        Show this help
@@ -955,6 +965,8 @@ public static class PMinusOneRootScheduleCache
 
 public static class FactorCommand
 {
+    private static readonly BigInteger AutoLargePrimeCacheLimit = 10_000_000_000L;
+
     public static int Run(FactorOptions options, CancellationToken cancellationToken)
     {
         Stopwatch stopwatch = Stopwatch.StartNew();
@@ -968,9 +980,17 @@ public static class FactorCommand
         }
 
         BigInteger largePrimeLimit = IntegerSqrt(options.Number);
-        string? memoryMappedLargePrimeCachePath = options.UseLargePrimeCache && File.Exists(options.LargePrimesFile)
-            ? options.LargePrimesFile
-            : null;
+        bool largePrimeCacheAutoSkipped = options.UseLargePrimeCache
+            && !options.ForceLargePrimeCache
+            && largePrimeLimit > AutoLargePrimeCacheLimit;
+        string? memoryMappedLargePrimeCachePath = options.UseLargePrimeCache
+            && !largePrimeCacheAutoSkipped
+            && File.Exists(options.LargePrimesFile)
+                ? options.LargePrimesFile
+                : null;
+        BigInteger effectiveLargePrimeLimit = options.ForceLargePrimeCache
+            ? largePrimeLimit
+            : BigInteger.Min(largePrimeLimit, AutoLargePrimeCacheLimit);
         BigInteger[] largePrimes = [];
 
         long[] rootSchedule = PMinusOneRootScheduleCache.LoadOrCreate(
@@ -982,9 +1002,18 @@ public static class FactorCommand
         {
             Console.Error.WriteLine($"Factoring: {options.Number}");
             Console.Error.WriteLine($"Small prime input: {smallSource} ({smallPrimes.Length} primes).");
-            Console.Error.WriteLine(options.UseLargePrimeCache
-                ? $"Large prime input: {(memoryMappedLargePrimeCachePath is null ? "cache file not found" : memoryMappedLargePrimeCachePath)}, memory-mapped and streamed up to <= sqrt(n) = {largePrimeLimit}."
-                : "Large prime input: skipped by --no-large-prime-cache.");
+            if (!options.UseLargePrimeCache)
+            {
+                Console.Error.WriteLine("Large prime input: skipped by --no-large-prime-cache.");
+            }
+            else if (largePrimeCacheAutoSkipped)
+            {
+                Console.Error.WriteLine($"Large prime input: auto-skipped because sqrt(n) = {largePrimeLimit} exceeds safe startup limit {AutoLargePrimeCacheLimit}. Use --force-large-prime-cache to scan it anyway.");
+            }
+            else
+            {
+                Console.Error.WriteLine($"Large prime input: {(memoryMappedLargePrimeCachePath is null ? "cache file not found" : memoryMappedLargePrimeCachePath)}, memory-mapped and streamed up to <= {effectiveLargePrimeLimit}.");
+            }
             Console.Error.WriteLine($"Pollard p-1/root-collision stage-1 bound: {options.PMinusOneBound}");
             Console.Error.WriteLine($"Pollard p-1/root-collision stage-2 bound: {options.PMinusOneStage2Bound}");
             Console.Error.WriteLine($"Root schedule input: {options.RootScheduleFile} ({rootSchedule.Length} prime powers).");
@@ -995,7 +1024,7 @@ public static class FactorCommand
             smallPrimes,
             largePrimes,
             memoryMappedLargePrimeCachePath,
-            largePrimeLimit,
+            effectiveLargePrimeLimit,
             rootSchedule,
             options.PMinusOneBound,
             options.PMinusOneStage2Bound,
