@@ -25,7 +25,7 @@ public sealed record FactorOptions(
         string smallPrimesFile = Path.Combine(".prime-cache", "small-primes.txt");
         string largePrimesFile = Path.Combine(".prime-cache", "large-primes.txt");
         string? rootScheduleFile = null;
-        bool useLargePrimeCache = false;
+        bool useLargePrimeCache = true;
         int workers = Environment.ProcessorCount;
         bool quiet = false;
         bool help = false;
@@ -66,6 +66,10 @@ public sealed record FactorOptions(
 
                 case "--use-large-prime-cache":
                     useLargePrimeCache = true;
+                    break;
+
+                case "--no-large-prime-cache":
+                    useLargePrimeCache = false;
                     break;
 
                 case "--workers":
@@ -136,7 +140,8 @@ Options:
       --small-primes-file <path> Small prime cache file (default: .prime-cache/small-primes.txt)
       --large-primes-file <path> Large prime cache file (default: .prime-cache/large-primes.txt)
       --root-schedule-file <path> Cache file for reusable Pollard p-1 prime-power/root schedule
-      --use-large-prime-cache    Trial-divide by large-primes cache too; off by default for huge inputs
+      --use-large-prime-cache    Trial-divide by large-primes cache too; enabled by default
+      --no-large-prime-cache     Skip large-prime cache trial division
   -w, --workers <n>              Parallel factor workers and Pollard rho workers (default: CPU core count)
   -q, --quiet                    Only print factors to stdout
   -h, --help                     Show this help
@@ -554,7 +559,7 @@ public static class FactorCommand
             Console.Error.WriteLine($"Small prime input: {smallSource} ({smallPrimes.Length} primes).");
             Console.Error.WriteLine(options.UseLargePrimeCache
                 ? $"Large prime input: {options.LargePrimesFile} ({largePrimes.Length} primes)."
-                : "Large prime input: skipped by default; use --use-large-prime-cache to enable.");
+                : "Large prime input: skipped by --no-large-prime-cache.");
             Console.Error.WriteLine($"Pollard p-1/root-collision bound: {options.PMinusOneBound}");
             Console.Error.WriteLine($"Root schedule input: {options.RootScheduleFile} ({rootSchedule.Length} prime powers).");
             Console.Error.WriteLine($"Parallel factor/Pollard rho workers: {options.Workers}.");
