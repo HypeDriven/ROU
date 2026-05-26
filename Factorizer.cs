@@ -137,7 +137,7 @@ Options:
       --large-primes-file <path> Large prime cache file (default: .prime-cache/large-primes.txt)
       --root-schedule-file <path> Cache file for reusable Pollard p-1 prime-power/root schedule
       --use-large-prime-cache    Trial-divide by large-primes cache too; off by default for huge inputs
-  -w, --workers <n>              Parallel Pollard rho workers (default: CPU core count)
+  -w, --workers <n>              Parallel factor workers and Pollard rho workers (default: CPU core count)
   -q, --quiet                    Only print factors to stdout
   -h, --help                     Show this help
 
@@ -174,12 +174,74 @@ public sealed class Factorizer
     public List<BigInteger> Factor(BigInteger n, bool quiet, CancellationToken cancellationToken = default)
     {
         var factors = new List<BigInteger>();
-        FactorRecursive(n, factors, quiet, cancellationToken);
-        factors.Sort();
+        object factorLock = new();
+        var queue = new System.Collections.Concurrent.ConcurrentQueue<BigInteger>();
+        using var workAvailable = new SemaphoreSlim(0);
+        long pending = 0;
+
+        void Enqueue(BigInteger value)
+        {
+            if (value <= 1)
+                return;
+
+            Interlocked.Increment(ref pending);
+            queue.Enqueue(value);
+            workAvailable.Release();
+        }
+
+        void CompleteOne()
+        {
+            if (Interlocked.Decrement(ref pending) == 0)
+            {
+                for (int i = 0; i < _workers; i++)
+                    workAvailable.Release();
+            }
+        }
+
+        void Worker()
+        {
+            while (true)
+            {
+                workAvailable.Wait(cancellationToken);
+
+                if (Volatile.Read(ref pending) == 0 && queue.IsEmpty)
+                    return;
+
+                if (!queue.TryDequeue(out BigInteger value))
+                    continue;
+
+                try
+                {
+                    ProcessComposite(value, factors, factorLock, quiet, Enqueue, cancellationToken);
+                }
+                finally
+                {
+                    CompleteOne();
+                }
+            }
+        }
+
+        Enqueue(n);
+
+        Task[] tasks = new Task[_workers];
+        for (int i = 0; i < tasks.Length; i++)
+            tasks[i] = Task.Run(Worker, cancellationToken);
+
+        Task.WaitAll(tasks, cancellationToken);
+
+        lock (factorLock)
+            factors.Sort();
+
         return factors;
     }
 
-    private void FactorRecursive(BigInteger n, List<BigInteger> factors, bool quiet, CancellationToken cancellationToken)
+    private void ProcessComposite(
+        BigInteger n,
+        List<BigInteger> factors,
+        object factorLock,
+        bool quiet,
+        Action<BigInteger> enqueue,
+        CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -188,7 +250,7 @@ public sealed class Factorizer
 
         if (IsProbablePrime(n, 32))
         {
-            AddFactor(n, factors, quiet);
+            AddFactor(n, factors, factorLock, quiet);
             return;
         }
 
@@ -201,7 +263,7 @@ public sealed class Factorizer
 
             while (n % bp == 0)
             {
-                AddFactor(bp, factors, quiet);
+                AddFactor(bp, factors, factorLock, quiet);
                 n /= bp;
             }
         }
@@ -214,7 +276,7 @@ public sealed class Factorizer
 
             while (n % p == 0)
             {
-                AddFactor(p, factors, quiet);
+                AddFactor(p, factors, factorLock, quiet);
                 n /= p;
             }
         }
@@ -224,7 +286,7 @@ public sealed class Factorizer
 
         if (IsProbablePrime(n, 32))
         {
-            AddFactor(n, factors, quiet);
+            AddFactor(n, factors, factorLock, quiet);
             return;
         }
 
@@ -232,15 +294,18 @@ public sealed class Factorizer
         if (divisor <= 1 || divisor >= n)
             divisor = PollardRhoParallel(n, _workers, cancellationToken);
 
-        FactorRecursive(divisor, factors, quiet, cancellationToken);
-        FactorRecursive(n / divisor, factors, quiet, cancellationToken);
+        enqueue(divisor);
+        enqueue(n / divisor);
     }
 
-    private static void AddFactor(BigInteger factor, List<BigInteger> factors, bool quiet)
+    private static void AddFactor(BigInteger factor, List<BigInteger> factors, object factorLock, bool quiet)
     {
-        factors.Add(factor);
-        Console.WriteLine(factor);
-        Console.Out.Flush();
+        lock (factorLock)
+        {
+            factors.Add(factor);
+            Console.WriteLine(factor);
+            Console.Out.Flush();
+        }
 
         if (!quiet)
             Console.Error.WriteLine($"Verified factor: {factor}");
@@ -492,7 +557,7 @@ public static class FactorCommand
                 : "Large prime input: skipped by default; use --use-large-prime-cache to enable.");
             Console.Error.WriteLine($"Pollard p-1/root-collision bound: {options.PMinusOneBound}");
             Console.Error.WriteLine($"Root schedule input: {options.RootScheduleFile} ({rootSchedule.Length} prime powers).");
-            Console.Error.WriteLine($"Parallel Pollard rho workers: {options.Workers}.");
+            Console.Error.WriteLine($"Parallel factor/Pollard rho workers: {options.Workers}.");
         }
 
         var factorizer = new Factorizer(smallPrimes, largePrimes, rootSchedule, options.Workers);

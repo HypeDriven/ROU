@@ -81,7 +81,7 @@ Options:
     --large-primes-file <path> Large prime cache file (default: .prime-cache/large-primes.txt)
     --root-schedule-file <path> Cache file for reusable Pollard p-1 prime-power/root schedule
     --use-large-prime-cache    Trial-divide by large-primes cache too; off by default for huge inputs
--w, --workers <n>              Parallel Pollard rho workers (default: CPU core count)
+-w, --workers <n>              Parallel factor workers and Pollard rho workers (default: CPU core count)
 -q, --quiet                    Only print factors to stdout
 -h, --help                     Show help
 ```
