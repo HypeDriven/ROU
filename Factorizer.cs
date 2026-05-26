@@ -10,6 +10,7 @@ public sealed record FactorOptions(
     int SmallPrimeLimit,
     string SmallPrimesFile,
     string LargePrimesFile,
+    string RootScheduleFile,
     bool Quiet,
     bool ShowHelp)
 {
@@ -21,6 +22,7 @@ public sealed record FactorOptions(
         int smallPrimeLimit = 100_000;
         string smallPrimesFile = Path.Combine(".prime-cache", "small-primes.txt");
         string largePrimesFile = Path.Combine(".prime-cache", "large-primes.txt");
+        string? rootScheduleFile = null;
         bool quiet = false;
         bool help = false;
 
@@ -52,6 +54,12 @@ public sealed record FactorOptions(
                     largePrimesFile = args[i];
                     break;
 
+                case "--root-schedule-file":
+                case "--roots-cache-file":
+                    if (++i >= args.Length) return null;
+                    rootScheduleFile = args[i];
+                    break;
+
                 case "-q":
                 case "--quiet":
                     quiet = true;
@@ -75,8 +83,10 @@ public sealed record FactorOptions(
             }
         }
 
+        rootScheduleFile ??= Path.Combine(".prime-cache", $"pminus1-powers-{pMinusOneBound}.txt");
+
         if (help)
-            return new FactorOptions(number, pMinusOneBound, smallPrimeLimit, smallPrimesFile, largePrimesFile, quiet, help);
+            return new FactorOptions(number, pMinusOneBound, smallPrimeLimit, smallPrimesFile, largePrimesFile, rootScheduleFile, quiet, help);
 
         if (!hasNumber || number < 2)
         {
@@ -90,7 +100,7 @@ public sealed record FactorOptions(
             return null;
         }
 
-        return new FactorOptions(number, pMinusOneBound, smallPrimeLimit, smallPrimesFile, largePrimesFile, quiet, help);
+        return new FactorOptions(number, pMinusOneBound, smallPrimeLimit, smallPrimesFile, largePrimesFile, rootScheduleFile, quiet, help);
     }
 
     public static void PrintUsage()
@@ -106,6 +116,7 @@ Options:
   -s, --small-prime-limit <n>    Fallback trial-division prime limit when no cache exists (default: 100000)
       --small-primes-file <path> Small prime cache file (default: .prime-cache/small-primes.txt)
       --large-primes-file <path> Large prime cache file (default: .prime-cache/large-primes.txt)
+      --root-schedule-file <path> Cache file for reusable Pollard p-1 prime-power/root schedule
   -q, --quiet                    Only print factors to stdout
   -h, --help                     Show this help
 
@@ -128,13 +139,13 @@ public sealed class Factorizer
 {
     private readonly int[] _smallPrimes;
     private readonly BigInteger[] _largePrimes;
-    private readonly int _pMinusOneBound;
+    private readonly long[] _pMinusOnePowers;
 
-    public Factorizer(int[] smallPrimes, BigInteger[] largePrimes, int pMinusOneBound)
+    public Factorizer(int[] smallPrimes, BigInteger[] largePrimes, long[] pMinusOnePowers)
     {
         _smallPrimes = smallPrimes;
         _largePrimes = largePrimes;
-        _pMinusOneBound = pMinusOneBound;
+        _pMinusOnePowers = pMinusOnePowers;
     }
 
     public List<BigInteger> Factor(BigInteger n, bool quiet, CancellationToken cancellationToken = default)
@@ -212,17 +223,10 @@ public sealed class Factorizer
     private BigInteger PollardPMinusOne(BigInteger n, CancellationToken cancellationToken)
     {
         BigInteger a = 2;
-        int[] primes = _smallPrimes.Length > 0 && _smallPrimes[^1] >= _pMinusOneBound
-            ? _smallPrimes.Where(p => p <= _pMinusOneBound).ToArray()
-            : PrimeUtilities.GenerateSmallPrimes(_pMinusOneBound);
 
-        foreach (int prime in primes)
+        foreach (long power in _pMinusOnePowers)
         {
             cancellationToken.ThrowIfCancellationRequested();
-
-            long power = prime;
-            while (power <= _pMinusOneBound / prime)
-                power *= prime;
 
             a = BigInteger.ModPow(a, power, n);
             BigInteger g = BigInteger.GreatestCommonDivisor(a - 1, n);
@@ -317,6 +321,75 @@ public sealed class Factorizer
     }
 }
 
+public static class PMinusOneRootScheduleCache
+{
+    public static long[] LoadOrCreate(string path, int bound, bool quiet)
+    {
+        long[] cached = Load(path, bound);
+        if (cached.Length > 0)
+        {
+            if (!quiet)
+                Console.Error.WriteLine($"P-1 root schedule cache: {path} ({cached.Length} prime powers).");
+            return cached;
+        }
+
+        long[] powers = Build(bound);
+        string? directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrWhiteSpace(directory))
+            Directory.CreateDirectory(directory);
+
+        using (var writer = new StreamWriter(path, append: false))
+        {
+            writer.WriteLine($"# Pollard p-1 reusable prime-power/root schedule; bound={bound}");
+            foreach (long power in powers)
+                writer.WriteLine(power);
+        }
+
+        if (!quiet)
+            Console.Error.WriteLine($"Created P-1 root schedule cache: {path} ({powers.Length} prime powers).");
+
+        return powers;
+    }
+
+    private static long[] Load(string path, int bound)
+    {
+        if (!File.Exists(path))
+            return [];
+
+        var powers = new List<long>();
+        foreach (string rawLine in File.ReadLines(path))
+        {
+            string line = rawLine.Trim();
+            if (line.Length == 0 || line.StartsWith('#'))
+                continue;
+
+            if (!long.TryParse(line, out long power) || power < 2)
+                return [];
+
+            if (power <= bound)
+                powers.Add(power);
+        }
+
+        return powers.Count == 0 ? [] : powers.ToArray();
+    }
+
+    private static long[] Build(int bound)
+    {
+        int[] primes = PrimeUtilities.GenerateSmallPrimes(bound);
+        var powers = new long[primes.Length];
+
+        for (int i = 0; i < primes.Length; i++)
+        {
+            long power = primes[i];
+            while (power <= bound / primes[i])
+                power *= primes[i];
+            powers[i] = power;
+        }
+
+        return powers;
+    }
+}
+
 public static class FactorCommand
 {
     public static int Run(FactorOptions options, CancellationToken cancellationToken)
@@ -334,15 +407,21 @@ public static class FactorCommand
         BigInteger largePrimeLimit = options.Number / 2;
         BigInteger[] largePrimes = PrimeUtilities.LoadLargePrimes(options.LargePrimesFile, largePrimeLimit);
 
+        long[] rootSchedule = PMinusOneRootScheduleCache.LoadOrCreate(
+            options.RootScheduleFile,
+            options.PMinusOneBound,
+            options.Quiet);
+
         if (!options.Quiet)
         {
             Console.Error.WriteLine($"Factoring: {options.Number}");
             Console.Error.WriteLine($"Small prime input: {smallSource} ({smallPrimes.Length} primes).");
             Console.Error.WriteLine($"Large prime input: {options.LargePrimesFile} ({largePrimes.Length} primes).");
             Console.Error.WriteLine($"Pollard p-1/root-collision bound: {options.PMinusOneBound}");
+            Console.Error.WriteLine($"Root schedule input: {options.RootScheduleFile} ({rootSchedule.Length} prime powers).");
         }
 
-        var factorizer = new Factorizer(smallPrimes, largePrimes, options.PMinusOneBound);
+        var factorizer = new Factorizer(smallPrimes, largePrimes, rootSchedule);
         List<BigInteger> factors = factorizer.Factor(options.Number, options.Quiet, cancellationToken);
 
         foreach (BigInteger factor in factors)
