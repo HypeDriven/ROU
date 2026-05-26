@@ -12,6 +12,7 @@ public sealed record FactorOptions(
     string LargePrimesFile,
     string RootScheduleFile,
     bool UseLargePrimeCache,
+    int Workers,
     bool Quiet,
     bool ShowHelp)
 {
@@ -25,6 +26,7 @@ public sealed record FactorOptions(
         string largePrimesFile = Path.Combine(".prime-cache", "large-primes.txt");
         string? rootScheduleFile = null;
         bool useLargePrimeCache = false;
+        int workers = Environment.ProcessorCount;
         bool quiet = false;
         bool help = false;
 
@@ -66,6 +68,11 @@ public sealed record FactorOptions(
                     useLargePrimeCache = true;
                     break;
 
+                case "--workers":
+                case "-w":
+                    if (++i >= args.Length || !int.TryParse(args[i], out workers)) return null;
+                    break;
+
                 case "-q":
                 case "--quiet":
                     quiet = true;
@@ -92,7 +99,7 @@ public sealed record FactorOptions(
         rootScheduleFile ??= Path.Combine(".prime-cache", $"pminus1-powers-{pMinusOneBound}.txt");
 
         if (help)
-            return new FactorOptions(number, pMinusOneBound, smallPrimeLimit, smallPrimesFile, largePrimesFile, rootScheduleFile, useLargePrimeCache, quiet, help);
+            return new FactorOptions(number, pMinusOneBound, smallPrimeLimit, smallPrimesFile, largePrimesFile, rootScheduleFile, useLargePrimeCache, workers, quiet, help);
 
         if (!hasNumber || number < 2)
         {
@@ -106,7 +113,13 @@ public sealed record FactorOptions(
             return null;
         }
 
-        return new FactorOptions(number, pMinusOneBound, smallPrimeLimit, smallPrimesFile, largePrimesFile, rootScheduleFile, useLargePrimeCache, quiet, help);
+        if (workers < 1)
+        {
+            Console.Error.WriteLine("--workers must be at least 1.");
+            return null;
+        }
+
+        return new FactorOptions(number, pMinusOneBound, smallPrimeLimit, smallPrimesFile, largePrimesFile, rootScheduleFile, useLargePrimeCache, workers, quiet, help);
     }
 
     public static void PrintUsage()
@@ -124,6 +137,7 @@ Options:
       --large-primes-file <path> Large prime cache file (default: .prime-cache/large-primes.txt)
       --root-schedule-file <path> Cache file for reusable Pollard p-1 prime-power/root schedule
       --use-large-prime-cache    Trial-divide by large-primes cache too; off by default for huge inputs
+  -w, --workers <n>              Parallel Pollard rho workers (default: CPU core count)
   -q, --quiet                    Only print factors to stdout
   -h, --help                     Show this help
 
@@ -147,12 +161,14 @@ public sealed class Factorizer
     private readonly int[] _smallPrimes;
     private readonly BigInteger[] _largePrimes;
     private readonly long[] _pMinusOnePowers;
+    private readonly int _workers;
 
-    public Factorizer(int[] smallPrimes, BigInteger[] largePrimes, long[] pMinusOnePowers)
+    public Factorizer(int[] smallPrimes, BigInteger[] largePrimes, long[] pMinusOnePowers, int workers)
     {
         _smallPrimes = smallPrimes;
         _largePrimes = largePrimes;
         _pMinusOnePowers = pMinusOnePowers;
+        _workers = Math.Max(1, workers);
     }
 
     public List<BigInteger> Factor(BigInteger n, bool quiet, CancellationToken cancellationToken = default)
@@ -214,7 +230,7 @@ public sealed class Factorizer
 
         BigInteger divisor = PollardPMinusOne(n, cancellationToken);
         if (divisor <= 1 || divisor >= n)
-            divisor = PollardRho(n, cancellationToken);
+            divisor = PollardRhoParallel(n, _workers, cancellationToken);
 
         FactorRecursive(divisor, factors, quiet, cancellationToken);
         FactorRecursive(n / divisor, factors, quiet, cancellationToken);
@@ -248,11 +264,55 @@ public sealed class Factorizer
         return BigInteger.One;
     }
 
-    private static BigInteger PollardRho(BigInteger n, CancellationToken cancellationToken)
+    private static BigInteger PollardRhoParallel(BigInteger n, int workers, CancellationToken cancellationToken)
     {
         if (n.IsEven)
             return 2;
 
+        if (workers == 1)
+            return PollardRhoWorker(n, cancellationToken);
+
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        object sync = new();
+        BigInteger result = BigInteger.Zero;
+
+        var tasks = new Task[workers];
+        for (int i = 0; i < workers; i++)
+        {
+            tasks[i] = Task.Run(() =>
+            {
+                try
+                {
+                    BigInteger divisor = PollardRhoWorker(n, linkedCts.Token);
+                    lock (sync)
+                    {
+                        if (result == BigInteger.Zero)
+                        {
+                            result = divisor;
+                            linkedCts.Cancel();
+                        }
+                    }
+                }
+                catch (OperationCanceledException) when (linkedCts.IsCancellationRequested)
+                {
+                }
+            }, linkedCts.Token);
+        }
+
+        try
+        {
+            Task.WaitAll(tasks);
+        }
+        catch (AggregateException ex) when (ex.InnerExceptions.All(e => e is OperationCanceledException))
+        {
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        return result > 1 && result < n ? result : PollardRhoWorker(n, cancellationToken);
+    }
+
+    private static BigInteger PollardRhoWorker(BigInteger n, CancellationToken cancellationToken)
+    {
         while (true)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -432,9 +492,10 @@ public static class FactorCommand
                 : "Large prime input: skipped by default; use --use-large-prime-cache to enable.");
             Console.Error.WriteLine($"Pollard p-1/root-collision bound: {options.PMinusOneBound}");
             Console.Error.WriteLine($"Root schedule input: {options.RootScheduleFile} ({rootSchedule.Length} prime powers).");
+            Console.Error.WriteLine($"Parallel Pollard rho workers: {options.Workers}.");
         }
 
-        var factorizer = new Factorizer(smallPrimes, largePrimes, rootSchedule);
+        var factorizer = new Factorizer(smallPrimes, largePrimes, rootSchedule, options.Workers);
         List<BigInteger> factors = factorizer.Factor(options.Number, options.Quiet, cancellationToken);
 
         stopwatch.Stop();
