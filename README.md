@@ -1,33 +1,84 @@
 # LargePrimeCli
 
-Command-line C#/.NET application for generating large primes using the supplied `LargePrimeSearcher` implementation.
+LargePrimeCli is a .NET 8 command-line toolkit for experimenting with large-prime generation and integer factorization. It implements the practical ideas described in Albert Meyburgh's paper, **Prime Candidate Sieving via Primitive Roots of Unity: A Spectral Reformulation of Wheel Factorization**.
+
+- [Read the paper PDF](docs/paper/root_unity_wheel_paper_with_factorization.pdf)
+
+## Paper summary
+
+The paper shows that a standard prime wheel sieve has an exact roots-of-unity interpretation. For a wheel modulus
+
+```math
+M = \prod_{p \in B} p
+```
+
+built from small primes, the admissible residues are exactly the exponents `r` with `gcd(r, M) = 1`; equivalently, they are the exponents for which
+
+```math
+\zeta_M^r = e^{2\pi i r/M}
+```
+
+is a primitive `M`-th root of unity. A proposed "root collision" test therefore reduces to ordinary divisibility by stored primes, and the same wheel mask can be written spectrally with Ramanujan sums. The paper also uses the same language to explain Pollard `p - 1`: a cached smooth exponent/root schedule can force a residue to collapse to the identity modulo one hidden prime factor, revealing a non-trivial factor by `gcd(a^M - 1, n)`.
+
+The computational conclusion is intentionally conservative: the root-of-unity view is a useful design and explanatory model, but the fast implementation is conventional cached residue/gap wheels, small-prime filtering, Pollard `p - 1`, Pollard rho, Miller-Rabin probable-prime tests, and optional primality-proof layers such as Pocklington-style certificates.
+
+## Project features
+
+- Generate large probable primes of a requested bit length.
+- Build reusable prime caches with a segmented sieve.
+- Factor integers using:
+  - cached small-prime trial division,
+  - optional large-prime cache trial division,
+  - a cached Pollard `p - 1` prime-power/root schedule with stage 2,
+  - Pollard rho fallback.
+- Output generated primes in decimal or hexadecimal.
 
 ## Requirements
 
 - .NET 8 SDK
 
+## Build
+
+```bash
+dotnet build
+```
+
+Create a release publish folder:
+
+```bash
+dotnet publish -c Release -o ./publish
+```
+
 ## Generate primes
+
+Generate one 256-bit prime:
 
 ```bash
 dotnet run -- --bits 256
 ```
 
-By default the app looks for cached inputs at:
+Generate two 512-bit primes in hexadecimal:
+
+```bash
+dotnet run -- -b 512 -f hex -c 2
+```
+
+By default the generator looks for cached inputs at:
 
 - `.prime-cache/small-primes.txt`
 - `.prime-cache/large-primes.txt`
 
-If no small-prime cache exists, it falls back to generating small primes up to `--small-prime-limit` in memory.
+If the small-prime cache is missing, it generates small primes in memory up to `--small-prime-limit`.
 
-## Create the prime cache
+## Build prime caches
 
-Use the separate `cache` utility command to enumerate primes from `1` to `N` with a segmented sieve and write them into the cache files used by future runs. It prints each discovered verified prime to stdout as it is found. On exit, it reports how far it processed and how long it ran:
+Enumerate primes up to `N` with the segmented sieve and write cache files:
 
 ```bash
 dotnet run -- cache --max 1000000
 ```
 
-Custom cache output paths:
+Custom output paths:
 
 ```bash
 dotnet run -- cache --max 1000000 \
@@ -35,7 +86,7 @@ dotnet run -- cache --max 1000000 \
   --large-out ./cache/large-primes.txt
 ```
 
-Then use those files for generation. On exit, generation reports elapsed time and the largest prime generated:
+Use those cache files during generation:
 
 ```bash
 dotnet run -- --bits 256 \
@@ -43,83 +94,49 @@ dotnet run -- --bits 256 \
   --large-primes-file ./cache/large-primes.txt
 ```
 
-## Factor a number
+## Factor integers
 
-The factor command uses the same cached prime inputs for trial division, then tries a roots-of-unity style Pollard `p - 1` search, and falls back to Pollard rho.
+Factor `8051`:
 
-```powershell
-dotnet .\publish\LargePrimeCli.dll factor 8051
+```bash
+dotnet run -- factor 8051
 ```
 
-Output:
+Expected factors:
 
 ```text
 83
 97
 ```
 
-The `p - 1` step looks for a collision:
+From a published build:
 
-```text
-gcd(a^M - 1, n)
+```bash
+dotnet ./publish/LargePrimeCli.dll factor 8051
 ```
 
-If a prime factor `p` of `n` has `p - 1` composed of small primes under the bound, then `a^M ≡ 1 mod p`, creating a root-of-unity collision that reveals `p` via the gcd.
+Useful factorization options:
 
-The modular residues themselves depend on the number being factored, so they cannot be reused across different inputs. The app does cache the reusable part: the Pollard `p - 1` prime-power/root schedule. Large-prime cache trial division is memory-mapped and streamed up to `sqrt(n)`, so factoring no longer has to load the whole large-prime cache into memory at startup.
+```text
+--pminus1-bound <n>           Stage-1 smoothness bound for Pollard p-1/root collision search
+--pminus1-stage2-bound <n>    Stage-2 bound for one-large-prime p-1 extension
+--root-schedule-file <path>   Cache file for reusable Pollard p-1 prime-power/root schedule
+--no-large-prime-cache        Skip large-prime cache trial division
+--force-large-prime-cache     Scan large-prime cache even for huge inputs
+-w, --workers <n>             Parallel factor workers and Pollard rho workers
+-q, --quiet                   Only print factors to stdout
+```
 
-By default the root schedule is saved at:
+The reusable root schedule defaults to:
 
 ```text
 .prime-cache/pminus1-powers-<bound>.txt
 ```
 
-Options:
-
-```text
-    --pminus1-bound <n>           Stage-1 smoothness bound for Pollard p-1/root collision search (default: 100000)
-    --pminus1-stage2-bound <n>    Stage-2 bound for one-large-prime p-1 extension (default: 10 * stage-1 bound)
--s, --small-prime-limit <n>       Fallback trial-division prime limit when no cache exists (default: 100000)
-    --small-primes-file <path>    Small prime cache file (default: .prime-cache/small-primes.txt)
-    --large-primes-file <path>    Large prime cache file (default: .prime-cache/large-primes.txt)
-    --root-schedule-file <path>   Cache file for reusable Pollard p-1 prime-power/root schedule
-    --use-large-prime-cache       Trial-divide by large-primes cache too; enabled by default
-    --no-large-prime-cache        Skip large-prime cache trial division
-    --force-large-prime-cache     Scan large-prime cache even for huge inputs
--w, --workers <n>                 Parallel factor workers and Pollard rho workers (default: CPU core count)
--q, --quiet                       Only print factors to stdout
--h, --help                        Show help
-```
-
-## Generate command options
-
-```text
--b, --bits <n>                 Prime bit length (default: 128, min: 16)
--r, --rounds <n>               Miller-Rabin rounds (default: 64)
--s, --small-prime-limit <n>    Fallback small prime generation limit when no cache exists (default: 10000)
--c, --count <n>                Number of primes to generate (default: 1)
-    --small-primes-file <path> Small prime cache file (default: .prime-cache/small-primes.txt)
-    --large-primes-file <path> Large prime cache file (default: .prime-cache/large-primes.txt)
--f, --format <decimal|hex>     Output format (default: decimal)
--q, --quiet                    Only print generated prime values to stdout
--h, --help                     Show help
-```
-
-## Cache command options
-
-```text
--n, --max <N>              Generate every prime <= N
-    --small-out <path>     Output file for int-sized primes (default: .prime-cache/small-primes.txt)
-    --large-out <path>     Output file for primes > int.MaxValue (default: .prime-cache/large-primes.txt)
-    --segment-size <n>     Segmented sieve block size (default: 1000000)
-    --no-emit-primes       Do not print each discovered verified prime to stdout; instead prints speed/memory stats every 5 minutes
--q, --quiet                Reduce progress output; primes still print unless --no-emit-primes is used
--h, --help                 Show help
-```
-
-Build a release publish folder:
+## Command help
 
 ```bash
-dotnet publish -c Release -o ./publish
-dotnet ./publish/LargePrimeCli.dll --bits 256
+dotnet run -- --help
+dotnet run -- cache --help
+dotnet run -- factor --help
 ```
