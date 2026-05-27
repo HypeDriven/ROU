@@ -1,38 +1,42 @@
 # LargePrimeCli
 
-LargePrimeCli is a .NET 8 command-line toolkit for experimenting with large-prime generation and integer factorization. It implements the practical ideas described in Albert Meyburgh's paper, **Prime Candidate Sieving via Primitive Roots of Unity: A Spectral Reformulation of Wheel Factorization**.
+LargePrimeCli is a .NET 8 command-line toolkit for experimenting with large-prime generation, wheel-based candidate sieving, integer factorization, and primality proving workflows inspired by Albert Meyburgh's paper, **A Roots-of-Unity Interpretation of Wheel Sieving and Pollard p-1**.
 
-- [Read the paper PDF](docs/paper/root_unity_wheel_paper_with_factorization.pdf)
+- [Read the paper PDF](docs/paper/root_unity_wheel_paper.albert_meyburgh.pdf)
 
 ## Paper summary
 
-The paper shows that a standard prime wheel sieve has an exact roots-of-unity interpretation. For a wheel modulus
+The paper gives an algebraic interpretation of ordinary wheel sieving. For a squarefree wheel modulus
 
 ```math
 M = \prod_{p \in B} p
 ```
 
-built from small primes, the admissible residues are exactly the exponents `r` with `gcd(r, M) = 1`; equivalently, they are the exponents for which
+built from a fixed set of small primes `B`, the admissible wheel residues modulo `M` are exactly the exponents that generate primitive `M`-th roots of unity:
 
 ```math
-\zeta_M^r = e^{2\pi i r/M}
+\gcd(r, M) = 1 \quad\Longleftrightarrow\quad e^{2\pi i r/M}\text{ is primitive.}
 ```
 
-is a primitive `M`-th root of unity. A proposed "root collision" test therefore reduces to ordinary divisibility by stored primes, and the same wheel mask can be written spectrally with Ramanujan sums. In plain terms, this means the yes/no table used by a wheel sieve--keep this residue, reject that residue--can also be expressed as a finite Fourier-like sum of roots of unity. The Ramanujan-sum formula is another exact way to describe the same periodic pattern of allowed residues; it is mathematically useful for understanding the structure, but the code should still use ordinary modular arithmetic and cached wheel data rather than evaluating complex exponentials.
+This is a reformulation of the classical coprimality filter, not a claim that complex arithmetic should be used in the hot path. The practical implementation should precompute admissible residues and cyclic gap tables, then generate candidates with integer arithmetic.
 
-The paper also uses the same language to explain Pollard `p - 1`: a cached smooth exponent/root schedule can force a residue to collapse to the identity modulo one hidden prime factor, revealing a non-trivial factor by `gcd(a^M - 1, n)`.
+The paper also shows that a natural "root-collision" criterion reduces exactly to divisibility by previously selected primes. In implementation terms, storing rational angles or root identifiers is equivalent to checking whether a candidate is divisible by one of the primes in the wheel basis.
 
-The computational conclusion is intentionally conservative: the root-of-unity view is a useful design and explanatory model, but the fast implementation is conventional cached residue/gap wheels, small-prime filtering, Pollard `p - 1`, Pollard rho, Miller-Rabin probable-prime tests, and optional primality-proof layers such as Pocklington-style certificates.
+A second viewpoint expresses the same wheel mask using Ramanujan sums. This gives a compact spectral description of the periodic keep/reject pattern while preserving the same computational conclusion: the efficient code path is ordinary modular arithmetic, cached wheels, and direct divisibility filters.
+
+The Pollard `p - 1` section uses the same roots-of-unity language to explain why smooth exponent schedules expose factors. If one hidden prime factor has smooth `p - 1`, repeated powering can collapse a residue to the identity modulo that factor, and `gcd(a^M - 1, n)` reveals a non-trivial divisor. The implementation therefore uses cached prime-power schedules, stage-2 extension, and conventional factorization fallbacks.
 
 ## Project features
 
-- Generate large probable primes of a requested bit length. These are probable primes, not proof-carrying primes.
+- Generate large probable primes of a requested bit length.
 - Build reusable prime caches with a segmented sieve.
 - Factor integers using:
   - cached small-prime trial division,
   - optional large-prime cache trial division,
   - a cached Pollard `p - 1` prime-power/root schedule with streamed segmented-sieve stage 2,
   - Pollard rho fallback.
+- Run probable-prime checks with randomized Miller-Rabin or Baillie-PSW.
+- Attempt recursive Pocklington proofs for returned prime factors with `--prove`.
 - Output generated primes in decimal or hexadecimal.
 
 Primality note: by default the CLI uses probable-prime tests. Randomized Miller-Rabin confidence depends on the number of rounds (`--rounds` for prime generation, `--miller-rabin-rounds` for factorization). `--baillie-psw` is available for factorization probable-prime checks. `--prove` attempts recursive Pocklington proofs for returned factors; ECPP fallback is not implemented yet.
@@ -152,7 +156,7 @@ dotnet run -- factor --help
 
 ## Regression tests
 
-Run the built-in deterministic regression suite, including Brent rho semiprimes of varying sizes and repeated-factor cases:
+Run the built-in deterministic regression suite, including wheel, primality, factorization, cache, concurrency, and Brent rho repeated-factor cases:
 
 ```bash
 dotnet run -- self-test
