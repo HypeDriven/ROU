@@ -18,7 +18,9 @@ built from small primes, the admissible residues are exactly the exponents `r` w
 \zeta_M^r = e^{2\pi i r/M}
 ```
 
-is a primitive `M`-th root of unity. A proposed "root collision" test therefore reduces to ordinary divisibility by stored primes, and the same wheel mask can be written spectrally with Ramanujan sums. The paper also uses the same language to explain Pollard `p - 1`: a cached smooth exponent/root schedule can force a residue to collapse to the identity modulo one hidden prime factor, revealing a non-trivial factor by `gcd(a^M - 1, n)`.
+is a primitive `M`-th root of unity. A proposed "root collision" test therefore reduces to ordinary divisibility by stored primes, and the same wheel mask can be written spectrally with Ramanujan sums. In plain terms, this means the yes/no table used by a wheel sieve--keep this residue, reject that residue--can also be expressed as a finite Fourier-like sum of roots of unity. The Ramanujan-sum formula is another exact way to describe the same periodic pattern of allowed residues; it is mathematically useful for understanding the structure, but the code should still use ordinary modular arithmetic and cached wheel data rather than evaluating complex exponentials.
+
+The paper also uses the same language to explain Pollard `p - 1`: a cached smooth exponent/root schedule can force a residue to collapse to the identity modulo one hidden prime factor, revealing a non-trivial factor by `gcd(a^M - 1, n)`.
 
 The computational conclusion is intentionally conservative: the root-of-unity view is a useful design and explanatory model, but the fast implementation is conventional cached residue/gap wheels, small-prime filtering, Pollard `p - 1`, Pollard rho, Miller-Rabin probable-prime tests, and optional primality-proof layers such as Pocklington-style certificates.
 
