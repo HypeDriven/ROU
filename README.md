@@ -26,14 +26,16 @@ The computational conclusion is intentionally conservative: the root-of-unity vi
 
 ## Project features
 
-- Generate large probable primes of a requested bit length.
+- Generate large probable primes of a requested bit length. These are probable primes, not proof-carrying primes.
 - Build reusable prime caches with a segmented sieve.
 - Factor integers using:
   - cached small-prime trial division,
   - optional large-prime cache trial division,
-  - a cached Pollard `p - 1` prime-power/root schedule with stage 2,
+  - a cached Pollard `p - 1` prime-power/root schedule with streamed segmented-sieve stage 2,
   - Pollard rho fallback.
 - Output generated primes in decimal or hexadecimal.
+
+Primality note: by default the CLI uses probable-prime tests. Randomized Miller-Rabin confidence depends on the number of rounds (`--rounds` for prime generation, `--miller-rabin-rounds` for factorization). `--baillie-psw` is available for factorization probable-prime checks. `--prove` attempts recursive Pocklington proofs for returned factors; ECPP fallback is not implemented yet.
 
 ## Requirements
 
@@ -111,6 +113,8 @@ Expected factors:
 97
 ```
 
+Factor output is streamed to stdout as factors are discovered; the order is not guaranteed when parallel workers are used. The in-process factor list is sorted before it is returned.
+
 From a published build:
 
 ```bash
@@ -125,7 +129,10 @@ Useful factorization options:
 --root-schedule-file <path>   Cache file for reusable Pollard p-1 prime-power/root schedule
 --no-large-prime-cache        Skip large-prime cache trial division
 --force-large-prime-cache     Scan large-prime cache even for huge inputs
--w, --workers <n>             Parallel factor workers and Pollard rho workers
+--miller-rabin-rounds <n>     Randomized Miller-Rabin rounds for probable-prime checks
+--baillie-psw                 Use Baillie-PSW probable-prime checks instead of randomized Miller-Rabin
+--prove                       Prove returned prime factors with recursive Pocklington certificates where possible
+-w, --workers <n>             Parallel factor workers
 -q, --quiet                   Only print factors to stdout
 ```
 
@@ -141,4 +148,12 @@ The reusable root schedule defaults to:
 dotnet run -- --help
 dotnet run -- cache --help
 dotnet run -- factor --help
+```
+
+## Regression tests
+
+Run the built-in deterministic regression suite, including Brent rho semiprimes of varying sizes and repeated-factor cases:
+
+```bash
+dotnet run -- self-test
 ```

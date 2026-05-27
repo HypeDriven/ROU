@@ -33,6 +33,44 @@ public static class PrimeUtilities
         return primes.ToArray();
     }
 
+    public static IEnumerable<int> EnumeratePrimesSegmented(int minExclusive, int max, int segmentSize = 1_000_000)
+    {
+        if (max < 2 || minExclusive >= max)
+            yield break;
+
+        if (segmentSize < 1024)
+            throw new ArgumentOutOfRangeException(nameof(segmentSize), "Segment size must be at least 1024.");
+
+        int root = IntegerSquareRoot(max);
+        int[] basePrimes = GenerateSmallPrimes(root);
+        long startValue = Math.Max(2L, (long)minExclusive + 1L);
+
+        for (long low = startValue; low <= max; low += segmentSize)
+        {
+            long high = Math.Min(max, low + segmentSize - 1L);
+            int length = checked((int)(high - low + 1L));
+            bool[] composite = new bool[length];
+
+            foreach (int prime in basePrimes)
+            {
+                long p = prime;
+                long pSquared = p * p;
+                if (pSquared > high)
+                    break;
+
+                long start = Math.Max(pSquared, ((low + p - 1L) / p) * p);
+                for (long multiple = start; multiple <= high; multiple += p)
+                    composite[multiple - low] = true;
+            }
+
+            for (int offset = 0; offset < length; offset++)
+            {
+                if (!composite[offset])
+                    yield return checked((int)(low + offset));
+            }
+        }
+    }
+
     public static int[] LoadSmallPrimes(string path)
     {
         if (!File.Exists(path))

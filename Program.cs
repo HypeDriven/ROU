@@ -2,6 +2,26 @@ using System.Diagnostics;
 using System.Numerics;
 using LargePrimeCli;
 
+if (args.Length > 0 && string.Equals(args[0], "self-test", StringComparison.OrdinalIgnoreCase))
+{
+    using var testCts = CreateCancellationTokenSource();
+
+    try
+    {
+        return RegressionTests.Run(testCts.Token);
+    }
+    catch (OperationCanceledException)
+    {
+        Console.Error.WriteLine("Canceled.");
+        return 130;
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Regression test failure: {ex.Message}");
+        return 1;
+    }
+}
+
 if (args.Length > 0 && string.Equals(args[0], "factor", StringComparison.OrdinalIgnoreCase))
 {
     FactorOptions? factorOptions = FactorOptions.Parse(args[1..]);
@@ -27,6 +47,15 @@ if (args.Length > 0 && string.Equals(args[0], "factor", StringComparison.Ordinal
     {
         Console.Error.WriteLine("Canceled.");
         return 130;
+    }
+    catch (FactorizationFailedException ex)
+    {
+        Console.Error.WriteLine("Factorization failed.");
+        Console.Error.WriteLine($"Residual composite: {ex.ResidualComposite}");
+        Console.Error.WriteLine($"Methods attempted: {ex.MethodsAttempted}");
+        Console.Error.WriteLine($"Last method attempted: {ex.LastMethodAttempted}");
+        Console.Error.WriteLine($"Suggested changes: {ex.SuggestedActions}");
+        return 3;
     }
     catch (Exception ex)
     {
@@ -311,16 +340,17 @@ sealed record CliOptions(
     public static void PrintUsage()
     {
         Console.WriteLine("""
-LargePrimeCli - generate large probable primes with Pocklington proof step
+LargePrimeCli - generate large probable primes and factor integers
 
 Usage:
   dotnet run -- [options]
   dotnet run -- cache --max <N> [options]
   dotnet run -- factor <number> [options]
+  dotnet run -- self-test
 
 Options:
   -b, --bits <n>                 Prime bit length (default: 128, min: 16)
-  -r, --rounds <n>               Miller-Rabin rounds (default: 64)
+  -r, --rounds <n>               Randomized Miller-Rabin rounds for probable primes (default: 64)
   -s, --small-prime-limit <n>    Fallback small prime generation limit when no cache exists (default: 10000)
   -c, --count <n>                Number of primes to generate (default: 1)
       --small-primes-file <path> Small prime cache file (default: .prime-cache/small-primes.txt)
@@ -336,6 +366,9 @@ Cache utility:
 Factor utility:
   dotnet run -- factor 8051
   dotnet run -- factor --help
+
+Regression tests:
+  dotnet run -- self-test
 
 Examples:
   dotnet run -- --bits 256
